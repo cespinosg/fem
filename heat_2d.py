@@ -1,5 +1,6 @@
 import numpy as np
-import vtk
+
+import vtk_helper as vh
 
 
 class Mesh:
@@ -93,46 +94,22 @@ class Mesh:
         '''
         Writes the mesh.
         '''
-        # https://examples.vtk.org/site/Cxx/StructuredGrid/StructuredGrid/
-        points = vtk.vtkPoints()
-        for i in range(self.np):
-            points.InsertNextPoint(self.points[0, i], self.points[1, i], 0)
-        grid = vtk.vtkStructuredGrid()
-        grid.SetDimensions(self.nx+1, self.ny+1, 1)
-        grid.SetPoints(points)
-        # https://examples.vtk.org/site/Cxx/PolyData/Casting/
-        area = vtk.vtkDoubleArray()
-        area.SetNumberOfComponents(1)
-        area.SetName('area')
-        for e in range(self.ne):
-            area.InsertNextValue(self.area[e])
-        grid.GetCellData().AddArray(area)
-        # https://examples.vtk.org/site/Cxx/IO/XMLStructuredGridWriter/
-        writer = vtk.vtkXMLStructuredGridWriter()
-        writer.SetFileName(vts_file_path)
-        writer.SetInputData(grid)
-        writer.Write()
+        grid = vh.create_structured_grid(self.points, self.nx+1, self.ny+1, 1)
+        vh.add_cell_array(grid, self.area, 'area')
+        vh.write_structured_grid(grid, vts_file_path)
 
     def write_boundaries(self, vtm_file_path):
         '''
         Writes the boundaries to the given vtm file path.
         '''
-        boundaries = vtk.vtkMultiBlockDataSet()
-        for (i, (name, b)) in enumerate(self.boundaries.items()):
-            points = vtk.vtkPoints()
-            for j in range(len(b['nodes'])):
-                x, y = self.points[:, b['nodes'][j]]
-                points.InsertNextPoint(x, y, 0)
-            boundary = vtk.vtkStructuredGrid()
-            boundary.SetDimensions(len(b['nodes']), 1, 1)
-            boundary.SetPoints(points)
-            boundaries.SetBlock(i, boundary)
-            info = boundaries.GetMetaData(i)
-            info.Set(vtk.vtkCompositeDataSet.NAME(), name)
-        writer = vtk.vtkXMLMultiBlockDataWriter()
-        writer.SetFileName(vtm_file_path)
-        writer.SetInputData(boundaries)
-        writer.Write()
+        boundaries = [0 for i in range(len(self.boundaries))]
+        names = [name for name in self.boundaries.keys()]
+        for (i, b) in enumerate(self.boundaries.values()):
+            points = self.points[:, b['nodes']]
+            nx = len(b['nodes'])
+            boundaries[i] = vh.create_structured_grid(points, nx, 1, 1)
+        boundaries = vh.create_multi_block(boundaries, names)
+        vh.write_multi_block(boundaries, vtm_file_path)
 
 
 class QuadElement:
@@ -286,31 +263,16 @@ class Assembler:
         '''
         Writes the results to the given vts file path.
         '''
-        # https://examples.vtk.org/site/Cxx/StructuredGrid/StructuredGrid/
-        points = vtk.vtkPoints()
-        for i in range(self.mesh.np):
-            points.InsertNextPoint(self.mesh.points[0, i], self.mesh.points[1, i], 0)
-        grid = vtk.vtkStructuredGrid()
-        grid.SetDimensions(self.mesh.nx+1, self.mesh.ny+1, 1)
-        grid.SetPoints(points)
-        # https://examples.vtk.org/site/Cxx/PolyData/Casting/
-        phi = vtk.vtkDoubleArray()
-        phi.SetNumberOfComponents(1)
-        phi.SetName('phi')
-        for i in range(self.mesh.np):
-            phi.InsertNextValue(self.phi[i])
-        grid.GetPointData().AddArray(phi)
-        # https://examples.vtk.org/site/Cxx/IO/XMLStructuredGridWriter/
-        writer = vtk.vtkXMLStructuredGridWriter()
-        writer.SetFileName(vts_file_path)
-        writer.SetInputData(grid)
-        writer.Write()
+        grid = vh.create_structured_grid(self.mesh.points, self.mesh.nx+1,
+            self.mesh.ny+1, 1)
+        vh.add_point_array(grid, self.phi, 'phi')
+        vh.write_structured_grid(grid, vts_file_path)
 
 
 if __name__ == '__main__':
     mesh = Mesh(nx=30, ny=30)
-    # mesh.write('results/heat_2d/mesh.vts')
-    # mesh.write_boundaries('results/heat_2d/boundaries.vtm')
+    mesh.write('results/heat_2d/mesh.vts')
+    mesh.write_boundaries('results/heat_2d/boundaries.vtm')
     # points = np.array([[0, 0], [1, 0], [1, 1], [0, 1]]).T
     # points = np.array([[0, 0], [1, -1], [2, 0], [1, 1]]).T
     # points = np.array([[0, 0], [3, 0], [2, 1], [1, 1]]).T
