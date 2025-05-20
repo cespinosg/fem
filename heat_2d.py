@@ -14,6 +14,7 @@ class Mesh:
         self.np = (self.nx+1)*(self.ny+1)
         self._set_points()
         self._set_connectivity()
+        self._set_boundaries()
         self._calculate_area()
 
     def _set_points(self):
@@ -38,6 +39,41 @@ class Mesh:
                 e = j*self.nx+i
                 n = j*(self.nx+1)+i
                 self.connectivity[e] = [n, n+1, n+self.nx+2, n+self.nx+1]
+
+    def _set_boundaries(self):
+        '''
+        Sets the boundary conditions.
+        '''
+        self.boundaries = {
+            'left':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([i*(self.nx+1) for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([0 for i in range(self.ny+1)]),
+            },
+            'bottom':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+            'right':
+            {
+                'type': 'neumann',
+                'nodes': np.array([(i+1)*(self.nx+1)-1 for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([0 for i in range(self.ny+1)]),
+            },
+            'top':
+            {
+                'type': 'neumann',
+                'nodes': np.array([self.ny*(self.nx+1)+i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([-20 for i in range(self.nx+1)]),
+            },
+        }
 
     def _calculate_area(self):
         '''
@@ -75,6 +111,27 @@ class Mesh:
         writer = vtk.vtkXMLStructuredGridWriter()
         writer.SetFileName(vts_file_path)
         writer.SetInputData(grid)
+        writer.Write()
+
+    def write_boundaries(self, vtm_file_path):
+        '''
+        Writes the boundaries to the given vtm file path.
+        '''
+        boundaries = vtk.vtkMultiBlockDataSet()
+        for (i, (name, b)) in enumerate(self.boundaries.items()):
+            points = vtk.vtkPoints()
+            for j in range(len(b['nodes'])):
+                x, y = self.points[:, b['nodes'][j]]
+                points.InsertNextPoint(x, y, 0)
+            boundary = vtk.vtkStructuredGrid()
+            boundary.SetDimensions(len(b['nodes']), 1, 1)
+            boundary.SetPoints(points)
+            boundaries.SetBlock(i, boundary)
+            info = boundaries.GetMetaData(i)
+            info.Set(vtk.vtkCompositeDataSet.NAME(), name)
+        writer = vtk.vtkXMLMultiBlockDataWriter()
+        writer.SetFileName(vtm_file_path)
+        writer.SetInputData(boundaries)
         writer.Write()
 
 
@@ -143,7 +200,28 @@ class QuadElement:
         '''
         self.k = np.zeros((self.n_points, self.n_points))
         for i in range(self.n_gauss_points):
-            self.k += np.dot(self.b[i].T, self.b[i])*np.linalg.det(self.jacobian[i])
+            self.k += 10*np.dot(self.b[i].T, self.b[i])*np.linalg.det(self.jacobian[i])
+
+
+class NeumannBoundary:
+    '''
+    Calculates the heat flux in an element with a Neumann boundary condition.
+    '''
+
+    def __init__(self, points, q):
+        self.points = points
+        self.q = q
+        self._calculate_flux()
+
+    def _calculate_flux(self):
+        '''
+        Returns the heat flux.
+        '''
+        dx = self.points[0, 1]-self.points[0, 0]
+        dy = self.points[1, 1]-self.points[1, 0]
+        ds = np.sqrt(dx**2+dy**2)
+        a = np.array([[2, 1], [1, 2]])
+        self.f = ds/6*np.dot(a, self.q)
 
 
 class Assembler:
@@ -154,7 +232,11 @@ class Assembler:
     def __init__(self, mesh):
         self.mesh = mesh
         self.k = np.zeros((self.mesh.np, self.mesh.np))
+        self.f = np.zeros(self.mesh.np)
+        self.phi = np.zeros(self.mesh.np)
         self._calculate_k()
+        self._apply_boundary_conditions()
+        self._solve()
 
     def _calculate_k(self):
         '''
@@ -171,13 +253,68 @@ class Assembler:
                     j = indices[e_j]
                     self.k[i, j] += element.k[e_i, e_j]
 
+    def _apply_boundary_conditions(self):
+        '''
+        Applies the boundary conditions.
+        '''
+        self.dirichlet_nodes = []
+        for boundary in self.mesh.boundaries.values():
+            if boundary['type'] == 'neumann':
+                elements = boundary['connectivity']
+                for e in elements:
+                    indices = boundary['nodes'][e]
+                    points = self.mesh.points[:, indices]
+                    q = boundary['values'][e]
+                    bc = NeumannBoundary(points, q)
+                    self.f[indices] += bc.f
+            if boundary['type'] == 'dirichlet':
+                self.phi[boundary['nodes']] = boundary['values']
+                self.dirichlet_nodes.extend(boundary['nodes'])
+        self.unknown_nodes = [i for i in range(self.mesh.np) if i not in self.dirichlet_nodes]
+
+    def _solve(self):
+        '''
+        Solves the temperature at the nodes where it is not known.
+        '''
+        k_ll = self.k[np.ix_(self.unknown_nodes, self.unknown_nodes)]
+        k_lr = self.k[np.ix_(self.unknown_nodes, self.dirichlet_nodes)]
+        f_l = self.f[self.unknown_nodes]
+        loading = f_l-np.dot(k_lr, self.phi[self.dirichlet_nodes])
+        self.phi[self.unknown_nodes] = np.linalg.solve(k_ll, loading)
+
+    def write(self, vts_file_path):
+        '''
+        Writes the results to the given vts file path.
+        '''
+        # https://examples.vtk.org/site/Cxx/StructuredGrid/StructuredGrid/
+        points = vtk.vtkPoints()
+        for i in range(self.mesh.np):
+            points.InsertNextPoint(self.mesh.points[0, i], self.mesh.points[1, i], 0)
+        grid = vtk.vtkStructuredGrid()
+        grid.SetDimensions(self.mesh.nx+1, self.mesh.ny+1, 1)
+        grid.SetPoints(points)
+        # https://examples.vtk.org/site/Cxx/PolyData/Casting/
+        phi = vtk.vtkDoubleArray()
+        phi.SetNumberOfComponents(1)
+        phi.SetName('phi')
+        for i in range(self.mesh.np):
+            phi.InsertNextValue(self.phi[i])
+        grid.GetPointData().AddArray(phi)
+        # https://examples.vtk.org/site/Cxx/IO/XMLStructuredGridWriter/
+        writer = vtk.vtkXMLStructuredGridWriter()
+        writer.SetFileName(vts_file_path)
+        writer.SetInputData(grid)
+        writer.Write()
+
 
 if __name__ == '__main__':
-    mesh = Mesh()
-    mesh.write('heat_2d.vts')
+    mesh = Mesh(nx=30, ny=30)
+    # mesh.write('results/heat_2d/mesh.vts')
+    # mesh.write_boundaries('results/heat_2d/boundaries.vtm')
     # points = np.array([[0, 0], [1, 0], [1, 1], [0, 1]]).T
     # points = np.array([[0, 0], [1, -1], [2, 0], [1, 1]]).T
     # points = np.array([[0, 0], [3, 0], [2, 1], [1, 1]]).T
     # element = QuadElement(points)
     assembler = Assembler(mesh)
+    assembler.write('results/heat_2d/solution.vts')
 
