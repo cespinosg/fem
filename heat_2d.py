@@ -18,6 +18,59 @@ class Mesh:
         self._set_boundaries()
         self._calculate_area()
 
+    def _set_connectivity(self):
+        '''
+        Sets the connectivity matrix.
+        '''
+        self.connectivity = np.zeros((self.ne, 4), dtype=int)
+        for i in range(self.nx):
+            for j in range(self.ny):
+                e = j*self.nx+i
+                n = j*(self.nx+1)+i
+                self.connectivity[e] = [n, n+1, n+self.nx+2, n+self.nx+1]
+
+    def _calculate_area(self):
+        '''
+        Calculates the area of all the elements.
+        '''
+        self.area = np.zeros(self.ne)
+        for e in range(self.ne):
+            indices = self.connectivity[e]
+            points = self.points[:, indices]
+            v_1 = points[:, 1]-points[:, 0]
+            v_2 = points[:, 2]-points[:, 0]
+            v_3 = points[:, 3]-points[:, 0]
+            self.area[e] = 0.5*np.linalg.det([v_1, v_2])
+            self.area[e] += 0.5*np.linalg.det([v_2, v_3])
+
+    def write(self, vts_file_path):
+        '''
+        Writes the mesh.
+        '''
+        grid = vh.create_structured_grid(self.points, self.nx+1, self.ny+1, 1)
+        vh.add_cell_array(grid, self.area, 'area')
+        vh.write_structured_grid(grid, vts_file_path)
+
+    def write_boundaries(self, vtm_file_path):
+        '''
+        Writes the boundaries to the given vtm file path.
+        '''
+        boundaries = [0 for i in range(len(self.boundaries))]
+        names = [name for name in self.boundaries.keys()]
+        for (i, b) in enumerate(self.boundaries.values()):
+            points = self.points[:, b['nodes']]
+            nx = len(b['nodes'])
+            boundaries[i] = vh.create_structured_grid(points, nx, 1, 1)
+        boundaries = vh.create_multi_block(boundaries, names)
+        vh.write_multi_block(boundaries, vtm_file_path)
+
+
+
+class QuadrilateralMesh(Mesh):
+    '''
+    Creates a Quadrilateral mesh.
+    '''
+
     def _set_points(self):
         '''
         Creates the points array.
@@ -29,17 +82,6 @@ class Mesh:
             indices = slice(j*(self.nx+1), (j+1)*(self.nx+1))
             self.points[0, indices] = np.linspace(0, 2, self.nx+1)
             self.points[1, indices] = (y_right[j]-y_left[j])/2.0*self.points[0, indices]+y_left[j]
-
-    def _set_connectivity(self):
-        '''
-        Sets the connectivity matrix.
-        '''
-        self.connectivity = np.zeros((self.ne, 4), dtype=int)
-        for i in range(self.nx):
-            for j in range(self.ny):
-                e = j*self.nx+i
-                n = j*(self.nx+1)+i
-                self.connectivity[e] = [n, n+1, n+self.nx+2, n+self.nx+1]
 
     def _set_boundaries(self):
         '''
@@ -76,40 +118,111 @@ class Mesh:
             },
         }
 
-    def _calculate_area(self):
-        '''
-        Calculates the area of all the elements.
-        '''
-        self.area = np.zeros(self.ne)
-        for e in range(self.ne):
-            indices = self.connectivity[e]
-            points = self.points[:, indices]
-            v_1 = points[:, 1]-points[:, 0]
-            v_2 = points[:, 2]-points[:, 0]
-            v_3 = points[:, 3]-points[:, 0]
-            self.area[e] = 0.5*np.linalg.det([v_1, v_2])
-            self.area[e] += 0.5*np.linalg.det([v_2, v_3])
 
-    def write(self, vts_file_path):
-        '''
-        Writes the mesh.
-        '''
-        grid = vh.create_structured_grid(self.points, self.nx+1, self.ny+1, 1)
-        vh.add_cell_array(grid, self.area, 'area')
-        vh.write_structured_grid(grid, vts_file_path)
+class RectangularMesh(Mesh):
+    '''
+    Creates a rectangular mesh.
+    '''
 
-    def write_boundaries(self, vtm_file_path):
+    def _set_points(self):
         '''
-        Writes the boundaries to the given vtm file path.
+        Creates the points array.
         '''
-        boundaries = [0 for i in range(len(self.boundaries))]
-        names = [name for name in self.boundaries.keys()]
-        for (i, b) in enumerate(self.boundaries.values()):
-            points = self.points[:, b['nodes']]
-            nx = len(b['nodes'])
-            boundaries[i] = vh.create_structured_grid(points, nx, 1, 1)
-        boundaries = vh.create_multi_block(boundaries, names)
-        vh.write_multi_block(boundaries, vtm_file_path)
+        self.points = np.zeros((2, self.np))
+        y_left = np.linspace(0, 1, self.ny+1)
+        y_right = np.linspace(0, 1, self.ny+1)
+        for j in range(self.ny+1):
+            indices = slice(j*(self.nx+1), (j+1)*(self.nx+1))
+            self.points[0, indices] = np.linspace(0, 2, self.nx+1)
+            self.points[1, indices] = (y_right[j]-y_left[j])/2.0*self.points[0, indices]+y_left[j]
+
+    def _set_boundaries(self):
+        '''
+        Sets the boundary conditions.
+        '''
+        self.boundaries = {
+            'left':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([i*(self.nx+1) for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([0 for i in range(self.ny+1)]),
+            },
+            'bottom':
+            {
+                'type': 'neumann',
+                'nodes': np.array([i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+            'right':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([(i+1)*(self.nx+1)-1 for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([20 for i in range(self.ny+1)]),
+            },
+            'top':
+            {
+                'type': 'neumann',
+                'nodes': np.array([self.ny*(self.nx+1)+i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+        }
+
+
+class CylindricalMesh(Mesh):
+    '''
+    Creates a cylindrical mesh.
+    '''
+
+    def _set_points(self):
+        '''
+        Creates the points array.
+        '''
+        self.points = np.zeros((2, self.np))
+        theta = np.linspace(0, 0.5*np.pi, self.nx+1)
+        radius = np.linspace(1, 2, self.ny+1)
+        for j in range(self.ny+1):
+            indices = slice(j*(self.nx+1), (j+1)*(self.nx+1))
+            self.points[0, indices] = radius[j]*np.cos(theta)
+            self.points[1, indices] = radius[j]*np.sin(theta)
+
+    def _set_boundaries(self):
+        '''
+        Sets the boundary conditions.
+        '''
+        self.boundaries = {
+            'bottom':
+            {
+                'type': 'neumann',
+                'nodes': np.array([i*(self.nx+1) for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([0 for i in range(self.ny+1)]),
+            },
+            'left':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+            'top':
+            {
+                'type': 'neumann',
+                'nodes': np.array([(i+1)*(self.nx+1)-1 for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([0 for i in range(self.ny+1)]),
+            },
+            'right':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([self.ny*(self.nx+1)+i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([20 for i in range(self.nx+1)]),
+            },
+        }
 
 
 class QuadElement:
@@ -270,7 +383,7 @@ class Assembler:
 
 
 if __name__ == '__main__':
-    mesh = Mesh(nx=30, ny=30)
+    mesh = CylindricalMesh(nx=30, ny=30)
     mesh.write('results/heat_2d/mesh.vts')
     mesh.write_boundaries('results/heat_2d/boundaries.vtm')
     # points = np.array([[0, 0], [1, 0], [1, 1], [0, 1]]).T
