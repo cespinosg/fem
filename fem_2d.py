@@ -56,6 +56,12 @@ class Mesh:
         '''
         return np.array([1, 0])
 
+    def source_func(self, x, y):
+        '''
+        Returns the source at the given coordinates.
+        '''
+        return 0
+
     def check_connectivity(self):
         '''
         Prints the coordinates of each element.
@@ -101,32 +107,30 @@ class QuadElement:
     def __init__(self, points):
         self.points = points
         self.n_points = points.shape[1]
+        self._calculate_shape_functions()
         self._calculate_gauss_point_coordinates()
         self._calculate_b_xi()
         self._calculate_jacobian()
         self._calculate_area()
         self._calculate_b()
 
-    def n_xi(self, coords_xi):
+    def _calculate_shape_functions(self):
         '''
-        Returns the shape functions in the given standard coordinates.
+        Calculates the shape functions values at the Gauss points.
         '''
-        xi, eta = coords_xi
-        return np.array([[
-            0.25*(1-xi)*(1-eta),
-            0.25*(1+xi)*(1-eta),
-            0.25*(1+xi)*(1+eta),
-            0.25*(1-xi)*(1+eta),
-        ]])
+        self.n = np.zeros((self.n_gauss, self.n_points))
+        for i in range(self.n_gauss):
+            xi, eta = self.gauss_points_xi[:, i]
+            self.n[i] = [0.25*(1-xi)*(1-eta), 0.25*(1+xi)*(1-eta),
+                0.25*(1+xi)*(1+eta), 0.25*(1-xi)*(1+eta)]
 
     def _calculate_gauss_point_coordinates(self):
         '''
         Calculates the coordinates of the Gauss points.
         '''
-        self.gauss_points = np.zeros((self.points.shape[0], self.n_gauss))
+        self.gauss_points = np.zeros((self.n_dim, self.n_gauss))
         for i in range(self.n_gauss):
-            ni = self.n_xi(self.gauss_points_xi[:, i])
-            self.gauss_points[:, i:i+1] = np.dot(self.points, ni.T)
+            self.gauss_points[:, i:i+1] = np.dot(self.points, self.n[i, None].T)
 
     def _calculate_b_xi(self):
         '''
@@ -205,11 +209,16 @@ class QuadElement:
         self.w = np.zeros((self.n_gauss, self.n_points))
         h = self._calculate_h()
         for i in range(self.n_gauss):
-            n = self.n_xi(self.gauss_points_xi[:, i])
+            n = self.n[i, None]
             if self.mag_u[i] != 0:
                 pe = 0.5*self.mag_u[i]*h/self.k[i]
                 alpha = 1/np.tanh(pe)-1/pe
                 self.w[i] = n+alpha*0.5*h*self.conv_der[i]/self.mag_u[i]
+                print(f'mag_u = {self.mag_u[i]}')
+                print(f'h = {h}')
+                print(f'k = {self.k[i]}')
+                print(f'pe = {pe}')
+                print(f'alpha = {alpha}')
             else:
                 self.w[i] = n
 
@@ -232,7 +241,7 @@ class QuadElement:
 
     def set_source(self, source_func):
         '''
-        Sets the source term at the Gauss points.
+        Sets the source term at the Gauss quadrature points.
         '''
         self.q = np.array([source_func(*g) for g in self.gauss_points.T])
 
@@ -242,7 +251,7 @@ class QuadElement:
         '''
         f = np.zeros(self.n_points)
         for i in range(self.n_gauss):
-            f += self.w[i]*self.n_xi(*self.gauss_points_xi[:, i])
+            f += self.w[i]*self.q[i]*self.det_j[i]
         return f
 
 
@@ -277,13 +286,13 @@ class Solver:
         self.k = np.zeros((self.mesh.np, self.mesh.np))
         self.f = np.zeros(self.mesh.np)
         self.phi = np.zeros(self.mesh.np)
-        self._calculate_k()
+        self._assemble()
         self._apply_boundary_conditions()
         self._solve()
 
-    def _calculate_k(self):
+    def _assemble(self):
         '''
-        Calculates the stiffness matrix.
+        Assembles the stiffness and force matrices.
         '''
         for e in range(self.mesh.ne):
             indices = self.mesh.connectivity[e]
@@ -294,6 +303,8 @@ class Solver:
             element.set_velocity(self.mesh.vel_func)
             c = element.calculate_convection()
             self.k[np.ix_(indices, indices)] += k+c
+            element.set_source(self.mesh.source_func)
+            self.f[indices] += element.calculate_source()
 
     def _apply_boundary_conditions(self):
         '''
