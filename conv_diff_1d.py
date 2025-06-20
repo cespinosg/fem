@@ -319,7 +319,7 @@ class Solver:
 
 
 if __name__ == '__main__':
-    # case = Case1(n_elem=20, phi_0=0, phi_1=1, peclet=4)
+    # case = Case1(n_elem=5, phi_0=0, phi_1=1, peclet=5)
     # case = Case2(n_elem=10, delta_x0=1e-2)
     case = Case3(n_elem=10)
     solver = Solver(case)

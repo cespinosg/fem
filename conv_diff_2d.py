@@ -51,6 +51,12 @@ class ExponentialFlow(f2d.Mesh):
             },
         }
 
+    def vel_func(self, x, y):
+        '''
+        Returns the velocity vector at the given coordinates.
+        '''
+        return np.array([5, 0])
+
     def check_solution(self, phi):
         '''
         Checks that the numerical solution matches the analytical one.
@@ -114,11 +120,23 @@ class ExpFlowVarSource(ExponentialFlow):
         '''
         return x**2
 
+    def check_solution(self, phi):
+        '''
+        Checks that the analytical solution matches the numerical one.
+        '''
+        a = [[1, 1], [1, np.exp(200)]]
+        b = [0, -1/600-1/4e4-1/4e6]
+        c1, c2 = np.linalg.solve(a, b)
+        x = self.points[0, :self.nx]
+        analytical = c1+c2*np.exp(200*x)+1/600*x**3+1/4e4*x**2+1/4e6*x
+        check = np.allclose(phi[:self.nx], analytical, atol=1e-6)
+        print(f'Exponential flow with variable source check: {check}')
+
 
 if __name__ == '__main__':
     # mesh = ExponentialFlow(nx=10, ny=10)
-    mesh = ExpFlowVarSource(nx=2, ny=2)
+    mesh = ExpFlowVarSource(nx=30, ny=30)
     solver = f2d.Solver(mesh)
     solver.write('results/conv_diff_2d/solution.vts')
-    # mesh.check_solution(solver.phi)
+    mesh.check_solution(solver.phi)
 

@@ -6,7 +6,7 @@ import fem_2d as f2d
 
 class QuadrilateralMesh(f2d.Mesh):
     '''
-    Creates a Quadrilateral mesh.
+    Creates a quadrilateral mesh.
     '''
 
     def _set_points(self):

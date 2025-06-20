@@ -189,7 +189,7 @@ class QuadElement:
         Sets the velocity at the Gauss points.
         '''
         self.u = np.array([vel_func(*g) for g in self.gauss_points.T]).T
-        self.mag_u = np.sqrt(np.sum(self.u, axis=0))
+        self.mag_u = np.sqrt(np.sum(self.u**2, axis=0))
         self._calculate_convective_derivative()
         self._calculate_weighting_function()
 
@@ -214,11 +214,6 @@ class QuadElement:
                 pe = 0.5*self.mag_u[i]*h/self.k[i]
                 alpha = 1/np.tanh(pe)-1/pe
                 self.w[i] = n+alpha*0.5*h*self.conv_der[i]/self.mag_u[i]
-                print(f'mag_u = {self.mag_u[i]}')
-                print(f'h = {h}')
-                print(f'k = {self.k[i]}')
-                print(f'pe = {pe}')
-                print(f'alpha = {alpha}')
             else:
                 self.w[i] = n
 
