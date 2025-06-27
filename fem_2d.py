@@ -1,3 +1,7 @@
+import datetime
+import pathlib
+import time
+
 import numpy as np
 
 import vtk_helper as vh
@@ -101,7 +105,16 @@ class Mesh:
         '''
         Returns the initial field.
         '''
-        return np.zeros(self.np)
+        if hasattr(self, 'phi_0'):
+            return self.phi_0
+        else:
+            return np.zeros(self.np)
+
+    def set_phi_0_from_file(self, vts_file_path):
+        '''
+        Sets the initial field value from the given vts file.
+        '''
+        self.phi_0 = vh.read_phi_from_vts_file(vts_file_path)
 
 
 class QuadElement:
@@ -389,9 +402,28 @@ class TransientSolver(Solver):
         self.t = t
         self.write_interval = write_interval
         self.tol = tol
+        self._set_log_file()
         self._assemble()
         self._apply_boundary_conditions()
         self._solve()
+
+    def _set_log_file(self):
+        '''
+        Sets the log file path.
+        '''
+        self.log_file = pathlib.Path(f'{self.mesh.folder}/{self.mesh.name}.log')
+        if not self.log_file.parent.is_dir():
+            self.log_file.parent.mkdir(parents=True)
+        if self.log_file.is_file():
+            self.log_file.unlink()
+
+    def _log(self, message):
+        '''
+        Prints the given message to the terminal and writes it to the log file.
+        '''
+        print(message)
+        with open(self.log_file, 'a') as fout:
+            fout.write(message+'\n')
 
     def _solve(self):
         '''
@@ -402,18 +434,17 @@ class TransientSolver(Solver):
         dt = np.diff(self.t)
         self.diff = np.zeros(self.nt-1)
         m_ll = self.m[np.ix_(self.unknown_nodes, self.unknown_nodes)]
+        inv_m_ll = np.linalg.inv(m_ll)
         k_l = self.k[self.unknown_nodes]
         f_l = self.f[self.unknown_nodes]
         self._write_times()
+        self._log(f'Starting the simulation at {datetime.datetime.now()}')
         for i in range(self.nt-1):
-            if i % self.write_interval == 0:
-                vts_fp = f'{self.mesh.folder}/{self.mesh.name}-{i:03}.vts'
-                self.write(vts_fp)
             new_phi = self.phi.copy()
             previous_new_phi = new_phi.copy()
             error = self.tol+1
-            inv_m_ll = np.linalg.inv(m_ll)
             j = 0
+            t0 = time.perf_counter()
             while error > self.tol and j < 100:
                 r = -np.dot(k_l, 0.5*(self.phi+new_phi))+f_l
                 dphi_dt = np.dot(inv_m_ll, r)
@@ -422,10 +453,18 @@ class TransientSolver(Solver):
                 error = max(abs(new_phi-previous_new_phi))
                 previous_new_phi = new_phi.copy()
                 j += 1
+            dt_wall = time.perf_counter()-t0
             self.diff[i] = max(abs(self.phi-new_phi))
             self.phi = new_phi
-            print((f'Solving for t = {self.t[i+1]:.4f} [-], '
-                f'diff = {self.diff[i]:.4e}, j = {j},  error = {error:.4e}'))
+            ln = (f'Solving for t = {self.t[i+1]:.4f} [-], '
+                f'diff = {self.diff[i]:.4e}, j = {j}, error = {error:.4e}, '
+                f'dt_wall = {dt_wall:.4e} [s]')
+            self._log(ln)
+            if (i+1) % self.write_interval == 0 or i == self.nt-2:
+                vts_fp = f'{self.mesh.folder}/{self.mesh.name}-{i+1:03}.vts'
+                self.write(vts_fp)
+        self._log(f'Finishing the simulation at {datetime.datetime.now()}')
+            
 
     def _write_times(self):
         '''

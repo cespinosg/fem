@@ -138,6 +138,9 @@ class SmithHutton(f2d.Mesh):
     Represents the Smith-Hutton problem.
     '''
 
+    folder = 'results/conv_diff_2d/transient-smith-hutton-v07'
+    name = 'transient-smith-hutton'
+
     def _set_points(self):
         '''
         Sets the point coordinates.
@@ -210,7 +213,9 @@ if __name__ == '__main__':
     # mesh = ExponentialFlow(nx=10, ny=10)
     # mesh = ExpFlowVarSource(nx=30, ny=30)
     mesh = SmithHutton(nx=100, ny=50)
-    solver = f2d.SteadySolver(mesh)
-    solver.write('results/conv_diff_2d/solution.vts')
+    mesh.set_phi_0_from_file('results/conv_diff_2d/transient-smith-hutton-v06/transient-smith-hutton-9009.vts')
+    # solver = f2d.SteadySolver(mesh)
+    # solver.write('results/conv_diff_2d/solution.vts')
     # mesh.check_solution(solver.phi)
+    solver = f2d.TransientSolver(mesh, np.arange(1.9999, 3.0, 1e-4), 100)
 

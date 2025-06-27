@@ -1,3 +1,4 @@
+import numpy as np
 import vtk
 
 
@@ -81,4 +82,30 @@ def write_multi_block(multi_block, vtm_file_path):
     writer.SetFileName(vtm_file_path)
     writer.SetInputData(multi_block)
     writer.Write()
+
+
+def read_vts_file(vts_file_path):
+    '''
+    Reads the given vts file.
+    '''
+    reader = vtk.vtkXMLStructuredGridReader()
+    reader.SetFileName(vts_file_path)
+    reader.Update()
+    result = reader.GetOutput()
+    return result
+
+
+def read_phi_from_vts_file(vts_file_path):
+    '''
+    Reads the phi array from the given vts file.
+    '''
+    result = read_vts_file(vts_file_path)
+    n_points = result.GetNumberOfPoints()
+    point_data = result.GetPointData()
+    n_arrays = point_data.GetNumberOfArrays()
+    array_names = [point_data.GetArrayName(i) for i in range(n_arrays)]
+    phi_index = [i for i in range(n_arrays) if array_names[i] == 'phi'][0]
+    phi_array = point_data.GetArray(phi_index)
+    phi = np.array([phi_array.GetValue(i) for i in range(n_points)])
+    return phi
 
