@@ -74,17 +74,16 @@ class RectangularMesh(f2d.Mesh):
     Creates a rectangular mesh.
     '''
 
+    folder = 'results/heat_2d/transient-rectangle'
+    name = 'transient-rectangle'
+
     def _set_points(self):
         '''
         Creates the points array.
         '''
-        self.points = np.zeros((2, self.np))
-        y_left = np.linspace(0, 1, self.ny+1)
-        y_right = np.linspace(0, 1, self.ny+1)
-        for j in range(self.ny+1):
-            indices = slice(j*(self.nx+1), (j+1)*(self.nx+1))
-            self.points[0, indices] = np.linspace(0, 2, self.nx+1)
-            self.points[1, indices] = (y_right[j]-y_left[j])/2.0*self.points[0, indices]+y_left[j]
+        x = np.linspace(0, 1, self.nx+1)
+        y = np.linspace(0, 1, self.ny+1)
+        self.points = np.array([[xi, yi] for yi in y for xi in x]).T
 
     def _set_boundaries(self):
         '''
@@ -120,6 +119,12 @@ class RectangularMesh(f2d.Mesh):
                 'values': np.array([0 for i in range(self.nx+1)]),
             },
         }
+
+    def vel_func(self, x, y):
+        '''
+        Returns the velocity at the given coordinates.
+        '''
+        return np.array([0, 0])
 
 
 class CylindricalMesh(f2d.Mesh):
@@ -174,9 +179,16 @@ class CylindricalMesh(f2d.Mesh):
             },
         }
 
+    def vel_func(self, x, y):
+        '''
+        Returns the velocity at the given coordinates.
+        '''
+        return np.array([0, 0])
+
 
 if __name__ == '__main__':
-    mesh = QuadrilateralMesh(nx=10, ny=10)
+    # mesh = QuadrilateralMesh(nx=10, ny=10)
+    mesh = RectangularMesh(nx=10, ny=1)
     # mesh = CylindricalMesh(nx=10, ny=10)
     # mesh.write('results/heat_2d/mesh.vts')
     # mesh.write_boundaries('results/heat_2d/boundaries.vtm')
@@ -184,6 +196,7 @@ if __name__ == '__main__':
     # points = np.array([[0, 0], [1, -1], [2, 0], [1, 1]]).T
     # points = np.array([[0, 0], [3, 0], [2, 1], [1, 1]]).T
     # element = QuadElement(points)
-    solver = f2d.Solver(mesh)
-    solver.write('results/heat_2d/solution.vts')
+    # solver = f2d.SteadySolver(mesh)
+    # solver.write('results/heat_2d/solution.vts')
+    solver = f2d.TransientSolver(mesh, np.arange(0, 5e-1, 1e-3), 15)
 

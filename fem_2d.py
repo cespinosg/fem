@@ -62,6 +62,12 @@ class Mesh:
         '''
         return 0
 
+    def density_func(self, x, y):
+        '''
+        Returns the density at the given coordinates.
+        '''
+        return 1
+
     def check_connectivity(self):
         '''
         Prints the coordinates of each element.
@@ -90,6 +96,12 @@ class Mesh:
             boundaries[i] = vh.create_structured_grid(points, nx, 1, 1)
         boundaries = vh.create_multi_block(boundaries, names)
         vh.write_multi_block(boundaries, vtm_file_path)
+
+    def get_phi_0(self):
+        '''
+        Returns the initial field.
+        '''
+        return np.zeros(self.np)
 
 
 class QuadElement:
@@ -249,6 +261,21 @@ class QuadElement:
             f += self.w[i]*self.q[i]*self.det_j[i]
         return f
 
+    def set_density(self, density_func):
+        '''
+        Sets the density at the Gauss points.
+        '''
+        self.rho = np.array([density_func(*g) for g in self.gauss_points.T])
+
+    def calculate_mass(self):
+        '''
+        Calculates the mass matrix.
+        '''
+        m = np.zeros((self.n_points, self.n_points))
+        for i in range(self.n_gauss):
+            m += self.rho[i]*np.dot(self.w[i, None].T, self.n[i, None])*self.det_j[i]
+        return m
+
 
 class NeumannBoundary:
     '''
@@ -278,12 +305,10 @@ class Solver:
 
     def __init__(self, mesh):
         self.mesh = mesh
+        self.m = np.zeros((self.mesh.np, self.mesh.np))
         self.k = np.zeros((self.mesh.np, self.mesh.np))
         self.f = np.zeros(self.mesh.np)
-        self.phi = np.zeros(self.mesh.np)
-        self._assemble()
-        self._apply_boundary_conditions()
-        self._solve()
+        self.phi = self.mesh.get_phi_0()
 
     def _assemble(self):
         '''
@@ -300,6 +325,8 @@ class Solver:
             self.k[np.ix_(indices, indices)] += k+c
             element.set_source(self.mesh.source_func)
             self.f[indices] += element.calculate_source()
+            element.set_density(self.mesh.density_func)
+            self.m[np.ix_(indices, indices)] += element.calculate_mass()
 
     def _apply_boundary_conditions(self):
         '''
@@ -320,6 +347,27 @@ class Solver:
                 self.dirichlet_nodes.extend(boundary['nodes'])
         self.unknown_nodes = [i for i in range(self.mesh.np) if i not in self.dirichlet_nodes]
 
+    def write(self, vts_file_path):
+        '''
+        Writes the results to the given vts file path.
+        '''
+        grid = vh.create_structured_grid(self.mesh.points, self.mesh.nx+1,
+            self.mesh.ny+1, 1)
+        vh.add_point_array(grid, self.phi, 'phi')
+        vh.write_structured_grid(grid, vts_file_path)
+
+
+class SteadySolver(Solver):
+    '''
+    Solves the steady state convection diffusion equation in 2 dimensions.
+    '''
+
+    def __init__(self, mesh):
+        super().__init__(mesh)
+        self._assemble()
+        self._apply_boundary_conditions()
+        self._solve()
+
     def _solve(self):
         '''
         Solves the temperature at the nodes where it is not known.
@@ -330,12 +378,60 @@ class Solver:
         loading = f_l-np.dot(k_lr, self.phi[self.dirichlet_nodes])
         self.phi[self.unknown_nodes] = np.linalg.solve(k_ll, loading)
 
-    def write(self, vts_file_path):
+
+class TransientSolver(Solver):
+    '''
+    Solves the transient convection diffusion equation in 2 dimensions.
+    '''
+
+    def __init__(self, mesh, t, write_interval, tol=1e-6):
+        super().__init__(mesh)
+        self.t = t
+        self.write_interval = write_interval
+        self.tol = tol
+        self._assemble()
+        self._apply_boundary_conditions()
+        self._solve()
+
+    def _solve(self):
         '''
-        Writes the results to the given vts file path.
+        Integrates the convection diffusion equation in time with the Crank-
+        Nicolson method.
         '''
-        grid = vh.create_structured_grid(self.mesh.points, self.mesh.nx+1,
-            self.mesh.ny+1, 1)
-        vh.add_point_array(grid, self.phi, 'phi')
-        vh.write_structured_grid(grid, vts_file_path)
+        self.nt = len(self.t)
+        dt = np.diff(self.t)
+        self.diff = np.zeros(self.nt-1)
+        m_ll = self.m[np.ix_(self.unknown_nodes, self.unknown_nodes)]
+        k_l = self.k[self.unknown_nodes]
+        f_l = self.f[self.unknown_nodes]
+        self._write_times()
+        for i in range(self.nt-1):
+            if i % self.write_interval == 0:
+                vts_fp = f'{self.mesh.folder}/{self.mesh.name}-{i:03}.vts'
+                self.write(vts_fp)
+            new_phi = self.phi.copy()
+            previous_new_phi = new_phi.copy()
+            error = self.tol+1
+            inv_m_ll = np.linalg.inv(m_ll)
+            j = 0
+            while error > self.tol and j < 100:
+                r = -np.dot(k_l, 0.5*(self.phi+new_phi))+f_l
+                dphi_dt = np.dot(inv_m_ll, r)
+                new_phi[self.unknown_nodes] = self.phi[self.unknown_nodes]
+                new_phi[self.unknown_nodes] += dphi_dt*dt[i]
+                error = max(abs(new_phi-previous_new_phi))
+                previous_new_phi = new_phi.copy()
+                j += 1
+            self.diff[i] = max(abs(self.phi-new_phi))
+            self.phi = new_phi
+            print((f'Solving for t = {self.t[i+1]:.4f} [-], '
+                f'diff = {self.diff[i]:.4e}, j = {j},  error = {error:.4e}'))
+
+    def _write_times(self):
+        '''
+        Writes the times at which the solution is written.
+        '''
+        tw = [self.t[i] for i in range(self.nt-1) if i % self.write_interval == 0]
+        with open(f'{self.mesh.folder}/time.txt', 'w') as fout:
+            fout.write('\n'.join([f'{t}' for t in tw]))
 

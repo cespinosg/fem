@@ -41,7 +41,14 @@ def test_quad_element():
     source_check = np.isclose(f[0], 1/12*(0.5-alpha))
     print(f'\nf_1 check: {source_check}')
 
-    return all([area_check, diff_check, conv_check, source_check])
+    density_func = lambda x, y: 1
+    quad.set_density(density_func)
+    m = quad.calculate_mass()
+    print(f'\nm = {m}')
+    mass_check = np.isclose(m[0, 1], 1/18-alpha/12)
+    print(f'\nM_12 check: {mass_check}')
+
+    return all([area_check, diff_check, conv_check, source_check, mass_check])
 
 
 if __name__ == '__main__':

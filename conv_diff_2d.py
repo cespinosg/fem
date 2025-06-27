@@ -197,7 +197,7 @@ class SmithHutton(f2d.Mesh):
         '''
         Returns the diffusivity at the given cooridinates.
         '''
-        return 1e-6
+        return 1e-1
 
     def vel_func(self, x, y):
         '''
@@ -210,7 +210,7 @@ if __name__ == '__main__':
     # mesh = ExponentialFlow(nx=10, ny=10)
     # mesh = ExpFlowVarSource(nx=30, ny=30)
     mesh = SmithHutton(nx=100, ny=50)
-    solver = f2d.Solver(mesh)
+    solver = f2d.SteadySolver(mesh)
     solver.write('results/conv_diff_2d/solution.vts')
     # mesh.check_solution(solver.phi)
 
