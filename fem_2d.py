@@ -13,6 +13,8 @@ class Mesh:
     Creates the mesh where the heat conduction equation will be solved.
     '''
 
+    update_source = False
+
     def __init__(self, nx=3, ny=3):
         self.nx = nx
         self.ny = ny
@@ -341,11 +343,27 @@ class Solver:
             element.set_density(self.mesh.density_func)
             self.m[np.ix_(indices, indices)] += element.calculate_mass()
 
+    def _assemble_source(self, t):
+        '''
+        Assembles the source term only at the given time.
+        '''
+        self.f = np.zeros(self.mesh.np)
+        for e in range(self.mesh.ne):
+            indices = self.mesh.connectivity[e]
+            points = self.mesh.points[:, indices]
+            element = QuadElement(points)
+            element.set_diffusivity(self.mesh.diff_func)
+            element.set_velocity(self.mesh.vel_func)
+            source_func = lambda x, y: self.mesh.source_func(x, y, t)
+            element.set_source(source_func)
+            self.f[indices] += element.calculate_source()
+
     def _apply_boundary_conditions(self):
         '''
         Applies the boundary conditions.
         '''
         self.dirichlet_nodes = []
+        self.periodic_nodes = []
         for boundary in self.mesh.boundaries.values():
             if boundary['type'] == 'neumann':
                 elements = boundary['connectivity']
@@ -358,7 +376,31 @@ class Solver:
             if boundary['type'] == 'dirichlet':
                 self.phi[boundary['nodes']] = boundary['values']
                 self.dirichlet_nodes.extend(boundary['nodes'])
-        self.unknown_nodes = [i for i in range(self.mesh.np) if i not in self.dirichlet_nodes]
+            if boundary['type'] == 'periodic':
+                if boundary['is_solved']:
+                    other = self.mesh.boundaries[boundary['connected_to']]
+                    for i in range(len(boundary['nodes'])):
+                        main = boundary['nodes'][i]
+                        periodic = other['nodes'][i]
+                        self.k[main, :] += self.k[periodic, :]
+                        self.k[:, main] += self.k[:, periodic]
+                        self.k[periodic, :] = 0
+                        self.k[:, periodic] = 0
+                else:
+                    self.periodic_nodes.extend(boundary['nodes'])
+        unsolved = self.dirichlet_nodes+self.periodic_nodes
+        indices = [i for i in range(self.mesh.np)]
+        self.unknown_nodes = [i for i in indices if i not in unsolved]
+
+    def _update_periodic_nodes(self):
+        '''
+        Updates the periodic nodes with the values from the solved nodes.
+        '''
+        for boundary in self.mesh.boundaries.values():
+            if boundary['type'] == 'periodic':
+                if not boundary['is_solved']:
+                    other = self.mesh.boundaries[boundary['connected_to']]
+                    self.phi[boundary['nodes']] = self.phi[other['nodes']].copy()
 
     def write(self, vts_file_path):
         '''
@@ -403,6 +445,7 @@ class TransientSolver(Solver):
         self.write_interval = write_interval
         self.tol = tol
         self._set_log_file()
+        self._set_time_file()
         self._assemble()
         self._apply_boundary_conditions()
         self._solve()
@@ -416,6 +459,14 @@ class TransientSolver(Solver):
             self.log_file.parent.mkdir(parents=True)
         if self.log_file.is_file():
             self.log_file.unlink()
+
+    def _set_time_file(self):
+        '''
+        Sets the time file path.
+        '''
+        self.time_file = pathlib.Path(f'{self.mesh.folder}/time.txt')
+        if self.time_file.is_file():
+            self.time_file.unlink()
 
     def _log(self, message):
         '''
@@ -437,16 +488,23 @@ class TransientSolver(Solver):
         inv_m_ll = np.linalg.inv(m_ll)
         k_l = self.k[self.unknown_nodes]
         f_l = self.f[self.unknown_nodes]
-        self._write_times()
+        next_f_l = f_l.copy()
         self._log(f'Starting the simulation at {datetime.datetime.now()}')
+        vts_fp = f'{self.mesh.folder}/{self.mesh.name}-0.vts'
+        self.write(vts_fp)
+        self._write_time(self.t[0])
         for i in range(self.nt-1):
+            if self.mesh.update_source:
+                f_l = next_f_l.copy()
+                self._assemble_source(self.t[i+1])
+                next_f_l = self.f[self.unknown_nodes]
             new_phi = self.phi.copy()
             previous_new_phi = new_phi.copy()
             error = self.tol+1
             j = 0
             t0 = time.perf_counter()
             while error > self.tol and j < 100:
-                r = -np.dot(k_l, 0.5*(self.phi+new_phi))+f_l
+                r = -np.dot(k_l, 0.5*(self.phi+new_phi))+0.5*(f_l+next_f_l)
                 dphi_dt = np.dot(inv_m_ll, r)
                 new_phi[self.unknown_nodes] = self.phi[self.unknown_nodes]
                 new_phi[self.unknown_nodes] += dphi_dt*dt[i]
@@ -456,21 +514,21 @@ class TransientSolver(Solver):
             dt_wall = time.perf_counter()-t0
             self.diff[i] = max(abs(self.phi-new_phi))
             self.phi = new_phi
+            self._update_periodic_nodes()
             ln = (f'Solving for t = {self.t[i+1]:.4f} [-], '
                 f'diff = {self.diff[i]:.4e}, j = {j}, error = {error:.4e}, '
                 f'dt_wall = {dt_wall:.4e} [s]')
             self._log(ln)
             if (i+1) % self.write_interval == 0 or i == self.nt-2:
-                vts_fp = f'{self.mesh.folder}/{self.mesh.name}-{i+1:03}.vts'
+                vts_fp = f'{self.mesh.folder}/{self.mesh.name}-{i+1}.vts'
                 self.write(vts_fp)
+                self._write_time(self.t[i+1])
         self._log(f'Finishing the simulation at {datetime.datetime.now()}')
-            
 
-    def _write_times(self):
+    def _write_time(self, t):
         '''
-        Writes the times at which the solution is written.
+        Writes the time at which the solution is written.
         '''
-        tw = [self.t[i] for i in range(self.nt-1) if i % self.write_interval == 0]
-        with open(f'{self.mesh.folder}/time.txt', 'w') as fout:
-            fout.write('\n'.join([f'{t}' for t in tw]))
+        with open(self.time_file, 'a') as fout:
+            fout.write(f'{t:.4e}\n')
 

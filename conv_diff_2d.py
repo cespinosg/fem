@@ -138,7 +138,7 @@ class SmithHutton(f2d.Mesh):
     Represents the Smith-Hutton problem.
     '''
 
-    folder = 'results/conv_diff_2d/transient-smith-hutton-v07'
+    folder = 'results/conv_diff_2d/transient-smith-hutton'
     name = 'transient-smith-hutton'
 
     def _set_points(self):
@@ -209,13 +209,169 @@ class SmithHutton(f2d.Mesh):
         return np.array([2*y*(1-x**2), -2*x*(1-y**2)])
 
 
+class ManufacturedSolutionDirichlet(f2d.Mesh):
+    '''
+    Represents the convection-diffusion of a manufactured solution with
+    Dirichlet boundary conditions.
+    '''
+
+    folder = 'results/conv_diff_2d/transient-ms-dirichlet'
+    name = 'transient-ms-dirichlet'
+    update_source = True
+
+    def _set_points(self):
+        '''
+        Sets the point coordinates.
+        '''
+        x = np.linspace(-1, 1, self.nx+1)
+        y = np.linspace(-1, 1, self.ny+1)
+        self.points = np.array([[xi, yi] for yi in y for xi in x]).T
+
+    def _set_boundaries(self):
+        '''
+        Sets the boundary conditions.
+        '''
+        self.boundaries = {
+            'left':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([i*(self.nx+1) for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([0 for i in range(self.ny+1)]),
+            },
+            'bottom':
+            {
+                'type': 'neumann',
+                'nodes': np.array([i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+            'right':
+            {
+                'type': 'dirichlet',
+                'nodes': np.array([(i+1)*(self.nx+1)-1 for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'values': np.array([0 for i in range(self.ny+1)]),
+            },
+            'top':
+            {
+                'type': 'neumann',
+                'nodes': np.array([self.ny*(self.nx+1)+i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+        }
+
+    def diff_func(self, x, y):
+        '''
+        Returns the diffusivity at the given cooridinates.
+        '''
+        return 1e-1
+
+    def vel_func(self, x, y):
+        '''
+        Returns the velocity vector at the given coordinates.
+        '''
+        return np.array([1, 0])
+
+    def source_func(self, x, y, t=0):
+        '''
+        Returns the velocity vector at the given coordinates.
+        '''
+        alpha = self.diff_func(x, y)
+        u = self.vel_func(x, y)
+        return (2*alpha-2*u[0]*x-(1-x**2))*np.exp(-t)
+
+    def set_phi_0(self):
+        '''
+        Sets the initial value for phi.
+        '''
+        self.phi_0 = np.zeros(self.np)
+        x = self.points[0, :self.nx+1]
+        for i in range(self.ny+1):
+            offset = i*(self.nx+1)
+            self.phi_0[offset:offset+self.nx+1] = 1-x**2
+
+
+class SineWave(f2d.Mesh):
+    '''
+    Represents the convection diffusion of a sine wave.
+    '''
+
+    folder = 'results/conv_diff_2d/transient-sine-wave'
+    name = 'transient-sine-wave'
+
+    def _set_points(self):
+        '''
+        Sets the point coordinates.
+        '''
+        x = np.linspace(-1, 1, self.nx+1)
+        y = np.linspace(-1, 1, self.ny+1)
+        self.points = np.array([[xi, yi] for yi in y for xi in x]).T
+
+    def _set_boundaries(self):
+        '''
+        Sets the boundary conditions.
+        '''
+        self.boundaries = {
+            'left':
+            {
+                'type': 'periodic',
+                'nodes': np.array([i*(self.nx+1) for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'connected_to': 'right',
+                'is_solved': True,
+            },
+            'bottom':
+            {
+                'type': 'neumann',
+                'nodes': np.array([i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+            'right':
+            {
+                'type': 'periodic',
+                'nodes': np.array([(i+1)*(self.nx+1)-1 for i in range(self.ny+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.ny)]),
+                'connected_to': 'left',
+                'is_solved': False,
+            },
+            'top':
+            {
+                'type': 'neumann',
+                'nodes': np.array([self.ny*(self.nx+1)+i for i in range(self.nx+1)]),
+                'connectivity': np.array([[i, i+1] for i in range(self.nx)]),
+                'values': np.array([0 for i in range(self.nx+1)]),
+            },
+        }
+
+    def diff_func(self, x, y):
+        '''
+        Returns the diffusivity at the given cooridinates.
+        '''
+        return 1e-1
+
+    def set_phi_0(self):
+        '''
+        Sets the initial value for phi.
+        '''
+        self.phi_0 = np.zeros(self.np)
+        x = self.points[0, :self.nx+1]
+        for i in range(self.ny+1):
+            offset = i*(self.nx+1)
+            self.phi_0[offset:offset+self.nx+1] = np.sin(np.pi*x)
+
+
 if __name__ == '__main__':
     # mesh = ExponentialFlow(nx=10, ny=10)
     # mesh = ExpFlowVarSource(nx=30, ny=30)
     mesh = SmithHutton(nx=100, ny=50)
-    mesh.set_phi_0_from_file('results/conv_diff_2d/transient-smith-hutton-v06/transient-smith-hutton-9009.vts')
+    # mesh = ManufacturedSolutionDirichlet(nx=50, ny=50)
+    # mesh = SineWave(nx=50, ny=50)
+    # mesh.set_phi_0()
     # solver = f2d.SteadySolver(mesh)
     # solver.write('results/conv_diff_2d/solution.vts')
     # mesh.check_solution(solver.phi)
-    solver = f2d.TransientSolver(mesh, np.arange(1.9999, 3.0, 1e-4), 100)
+    solver = f2d.TransientSolver(mesh, np.arange(0, 3.0+1e-4, 1e-4), 100)
 
