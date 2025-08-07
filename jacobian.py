@@ -35,7 +35,14 @@ class Element:
         self.n_xi = n_xi
         self.n_eta = n_eta
         self.n_zeta = n_zeta
+        self._aux_funcs()
         self._mesh()
+
+    def _aux_funcs(self):
+        '''
+        Calls auxiliary functions if needed.
+        '''
+        pass
 
     def _mesh(self):
         '''
@@ -50,7 +57,8 @@ class Element:
         for self.k in range(self.n_zeta):
             for self.j in range(self.n_eta):
                 for self.i in range(self.n_xi):
-                    self.p_id = self.j*self.n_xi+self.i
+                    self.p_id = self.k*self.n_xi*self.n_eta+self.j*self.n_xi
+                    self.p_id += self.i
                     self._calculate_coordinates()
                     self._calculate_jacobian()
 
@@ -103,6 +111,22 @@ class Quad(Element):
     Represents a quadrilateral element of arbitrary order.
     '''
 
+    def _aux_funcs(self):
+        '''
+        Calls the auxiliary functions before creating the mesh.
+        '''
+        self._calculate_surface_normal()
+
+    def _calculate_surface_normal(self):
+        '''
+        Calculates the surface normal vector of the element. It is used to
+        determine the sign of the Jacobian.
+        '''
+        u = self.nodes[1]-self.nodes[0]
+        v = self.nodes[3]-self.nodes[0]
+        self.n = np.cross(u, v)
+        self.n = self.n/np.linalg.norm(self.n)
+
     def _calculate_coordinates(self):
         '''
         Calculates the coordinates.
@@ -122,7 +146,7 @@ class Quad(Element):
         a[0] = [self._dni_dxi(i, xi, eta) for i in range(self.n_nodes)]
         a[1] = [self._dni_deta(i, xi, eta) for i in range(self.n_nodes)]
         j = np.dot(a, self.nodes)
-        self.jacobian[self.p_id] = np.linalg.norm(np.linalg.cross(j[0], j[1]))
+        self.jacobian[self.p_id] = np.dot(np.linalg.cross(j[0], j[1]), self.n)
 
     def _ni(self, i, xi, eta):
         '''
