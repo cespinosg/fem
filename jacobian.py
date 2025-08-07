@@ -25,42 +25,46 @@ def lagrange_polynomial_derivative(x_nodes, index, x):
     return dl_dx
 
 
-class Quad:
+class Element:
     '''
-    Base class for quadrialteral elements.
+    Base class for elements.
     '''
 
-    def __init__(self, nodes, n_xi=5, n_eta=5):
+    def __init__(self, nodes, n_xi=5, n_eta=5, n_zeta=5):
         self.nodes = nodes
         self.n_xi = n_xi
         self.n_eta = n_eta
+        self.n_zeta = n_zeta
         self._mesh()
 
     def _mesh(self):
         '''
         Meshes the element to visualise the mapping.
         '''
-        self.n_points = self.n_xi*self.n_eta
+        self.n_points = self.n_xi*self.n_eta*self.n_zeta
         self.points = np.zeros((self.n_points, 3))
         self.jacobian = np.zeros(self.n_points)
         self.xi = np.linspace(-1, 1, self.n_xi)
         self.eta = np.linspace(-1, 1, self.n_eta)
-        for self.j in range(self.n_eta):
-            for self.i in range(self.n_xi):
-                self.k = self.j*self.n_xi+self.i
-                self._calculate_coordinates()
-                self._calculate_jacobian()
+        self.zeta = np.linspace(-1, 1, self.n_zeta)
+        for self.k in range(self.n_zeta):
+            for self.j in range(self.n_eta):
+                for self.i in range(self.n_xi):
+                    self.p_id = self.j*self.n_xi+self.i
+                    self._calculate_coordinates()
+                    self._calculate_jacobian()
 
     def write(self, vts_file_path):
         '''
         Writes the mesh in a vts file.
         '''
-        mesh = vh.create_structured_grid(self.points, self.n_xi, self.n_eta, 1)
+        mesh = vh.create_structured_grid(self.points.T, self.n_xi, self.n_eta,
+            self.n_zeta)
         vh.add_point_array(mesh, self.jacobian, 'jacobian')
         vh.write_structured_grid(mesh, vts_file_path)
 
 
-class LinearQuad(Quad):
+class LinearQuad(Element):
     '''
     Represents a linear quadrilateral element.
     '''
@@ -77,7 +81,7 @@ class LinearQuad(Quad):
             0.25*(1+xi)*(1+eta),
             0.25*(1-xi)*(1+eta),
         ]])
-        self.points[self.k] = np.dot(n, self.nodes)
+        self.points[self.p_id] = np.dot(n, self.nodes)
 
     def _calculate_jacobian(self):
         '''
@@ -91,32 +95,13 @@ class LinearQuad(Quad):
         j12 = 0.25*(-y[0]+y[1]+y[2]-y[3]+(y[0]-y[1]+y[2]-y[3])*eta)
         j21 = 0.25*(-x[0]-x[1]+x[2]+x[3]+(x[0]-x[1]+x[2]-x[3])*xi)
         j22 = 0.25*(-y[0]-y[1]+y[2]+y[3]+(y[0]-y[1]+y[2]-y[3])*xi)
-        self.jacobian[self.k] = j11*j22-j21*j12
+        self.jacobian[self.p_id] = j11*j22-j21*j12
 
 
-class Quad2(Quad):
+class Quad(Element):
     '''
-    Represents a second order quadrilateral element.
+    Represents a quadrilateral element of arbitrary order.
     '''
-    
-    connectivity = np.array([
-        [0, 4, 1],
-        [7, 8, 5],
-        [3, 6, 2],
-    ])
-    n_rows, n_cols = connectivity.shape
-    xi_nodes = np.array([
-        [-1, -1],
-        [1, -1],
-        [1, 1],
-        [-1, 1],
-        [0, -1],
-        [1, 0],
-        [0, 1],
-        [-1, 0],
-        [0, 0],
-    ])
-    n_nodes = len(xi_nodes)
 
     def _calculate_coordinates(self):
         '''
@@ -125,7 +110,7 @@ class Quad2(Quad):
         xi = self.xi[self.i]
         eta = self.eta[self.j]
         n = np.array([[self._ni(i, xi, eta) for i in range(self.n_nodes)]])
-        self.points[self.k] = np.dot(n, self.nodes)
+        self.points[self.p_id] = np.dot(n, self.nodes)
 
     def _calculate_jacobian(self):
         '''
@@ -136,8 +121,8 @@ class Quad2(Quad):
         eta = self.eta[self.j]
         a[0] = [self._dni_dxi(i, xi, eta) for i in range(self.n_nodes)]
         a[1] = [self._dni_deta(i, xi, eta) for i in range(self.n_nodes)]
-        j = np.dot(a, self.nodes[:, [0, 1]])
-        self.jacobian[self.k] = np.linalg.det(j)
+        j = np.dot(a, self.nodes)
+        self.jacobian[self.p_id] = np.linalg.norm(np.linalg.cross(j[0], j[1]))
 
     def _ni(self, i, xi, eta):
         '''
@@ -190,16 +175,62 @@ class Quad2(Quad):
         return eta_nodes, col_index
 
 
+class Quad2(Quad):
+    '''
+    Represents a quadrilateral element of order two.
+    '''
+    
+    connectivity = np.array([
+        [0, 4, 1],
+        [7, 8, 5],
+        [3, 6, 2],
+    ])
+    n_rows, n_cols = connectivity.shape
+    xi_nodes = np.array([
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+        [0, -1],
+        [1, 0],
+        [0, 1],
+        [-1, 0],
+        [0, 0],
+    ])
+    n_nodes = len(xi_nodes)
+
+
+class Quad1(Quad):
+    '''
+    Represents a quadrilateral element of order one.
+    '''
+    
+    connectivity = np.array([
+        [0, 1],
+        [3, 2],
+    ])
+    n_rows, n_cols = connectivity.shape
+    xi_nodes = np.array([
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+    ])
+    n_nodes = len(xi_nodes)
+
+
 if __name__ == '__main__':
-    nodes = np.array([
+    q1_nodes = np.array([
         [0, 0, 0],
         [3, 1, 0],
         [4, 3, 0],
         [1, 2, 0],
     ])
-    # quad = LinearQuad(nodes, n_xi=3, n_eta=4)
-    # quad.write('results/jacobian/linear-quad.vts')
-    nodes = np.array([
+    quad = LinearQuad(q1_nodes, n_xi=3, n_eta=4, n_zeta=1)
+    quad.write('results/jacobian/linear-quad.vts')
+    q1 = Quad1(q1_nodes, n_xi=3, n_eta=4, n_zeta=1)
+    q1.write('results/jacobian/q1.vts')
+    q2_nodes = np.array([
         [0, 0, 0],
         [3, 1, 0],
         [4, 3, 0],
@@ -210,8 +241,8 @@ if __name__ == '__main__':
         [0.5, 1, 0],
         [2, 1.5, 0],
     ])
-    delta = np.sqrt(nodes[3, 0]**2+nodes[3, 1]**2)
-    nodes[-1, [0, 1]] += 0.3*delta
-    q2 = Quad2(nodes, n_xi=21, n_eta=21)
+    delta = np.sqrt(q2_nodes[3, 0]**2+q2_nodes[3, 1]**2)
+    q2_nodes[-1, [0, 1]] += 0.3*delta
+    q2 = Quad2(q2_nodes, n_xi=21, n_eta=21, n_zeta=1)
     q2.write('results/jacobian/q2.vts')
 

@@ -9,7 +9,10 @@ def create_structured_grid(points, nx, ny, nz):
     # https://examples.vtk.org/site/Cxx/StructuredGrid/StructuredGrid/
     points_vtk = vtk.vtkPoints()
     for i in range(points.shape[1]):
-        points_vtk.InsertNextPoint(points[0, i], points[1, i], 0)
+        if points.shape[0] == 2:
+            points_vtk.InsertNextPoint(points[0, i], points[1, i], 0)
+        elif points.shape[0] == 3:
+            points_vtk.InsertNextPoint(points[0, i], points[1, i], points[2, i])
     grid = vtk.vtkStructuredGrid()
     grid.SetDimensions(nx, ny, nz)
     grid.SetPoints(points_vtk)
