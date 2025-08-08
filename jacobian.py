@@ -181,9 +181,9 @@ class Quad(Element):
         '''
         xi_nodes, xi_index = self._get_dimension_array(i, 0)
         eta_nodes, eta_index = self._get_dimension_array(i, 1)
-        l_row = lagrange_polynomial(xi_nodes, xi_index, xi)
-        l_col = lagrange_polynomial(eta_nodes, eta_index, eta)
-        return l_row*l_col
+        l_xi = lagrange_polynomial(xi_nodes, xi_index, xi)
+        l_eta = lagrange_polynomial(eta_nodes, eta_index, eta)
+        return l_xi*l_eta
 
     def _dni_dxi(self, i, xi, eta):
         '''
@@ -192,9 +192,9 @@ class Quad(Element):
         '''
         xi_nodes, xi_index = self._get_dimension_array(i, 0)
         eta_nodes, eta_index = self._get_dimension_array(i, 1)
-        l_row = lagrange_polynomial_derivative(xi_nodes, xi_index, xi)
-        l_col = lagrange_polynomial(eta_nodes, eta_index, eta)
-        return l_row*l_col
+        l_xi = lagrange_polynomial_derivative(xi_nodes, xi_index, xi)
+        l_eta = lagrange_polynomial(eta_nodes, eta_index, eta)
+        return l_xi*l_eta
 
     def _dni_deta(self, i, xi, eta):
         '''
@@ -203,22 +203,21 @@ class Quad(Element):
         '''
         xi_nodes, xi_index = self._get_dimension_array(i, 0)
         eta_nodes, eta_index = self._get_dimension_array(i, 1)
-        l_row = lagrange_polynomial(xi_nodes, xi_index, xi)
-        l_col = lagrange_polynomial_derivative(eta_nodes, eta_index, eta)
-        return l_row*l_col
+        l_xi = lagrange_polynomial(xi_nodes, xi_index, xi)
+        l_eta = lagrange_polynomial_derivative(eta_nodes, eta_index, eta)
+        return l_xi*l_eta
 
 
 class Quad2(Quad):
     '''
     Represents a quadrilateral element of order two.
     '''
-    
+
     connectivity = np.array([
         [0, 4, 1],
         [7, 8, 5],
         [3, 6, 2],
     ])
-    n_rows, n_cols = connectivity.shape
     xi_nodes = np.array([
         [-1, -1],
         [1, -1],
@@ -237,12 +236,11 @@ class Quad1(Quad):
     '''
     Represents a quadrilateral element of order one.
     '''
-    
+
     connectivity = np.array([
         [0, 1],
         [3, 2],
     ])
-    n_rows, n_cols = connectivity.shape
     xi_nodes = np.array([
         [-1, -1],
         [1, -1],
@@ -252,17 +250,183 @@ class Quad1(Quad):
     n_nodes = len(xi_nodes)
 
 
+class Hexa(Element):
+    '''
+    Represents a hexahedral element.
+    '''
+
+    def _calculate_coordinates(self):
+        '''
+        Calculates the coordinates.
+        '''
+        xi = self.xi[self.i]
+        eta = self.eta[self.j]
+        zeta = self.eta[self.k]
+        n = np.array([[self._ni(i, xi, eta, zeta) for i in range(self.n_nodes)]])
+        self.points[self.p_id] = np.dot(n, self.nodes)
+
+    def _calculate_jacobian(self):
+        '''
+        Calculates the Jacobian.
+        '''
+        a = np.zeros((3, self.n_nodes))
+        xi_coords = np.array([
+            self.xi[self.i], self.eta[self.j], self.zeta[self.k]])
+        a[0] = [self._dni_dxi(i, xi_coords, 0) for i in range(self.n_nodes)]
+        a[1] = [self._dni_dxi(i, xi_coords, 1) for i in range(self.n_nodes)]
+        a[2] = [self._dni_dxi(i, xi_coords, 2) for i in range(self.n_nodes)]
+        j = np.dot(a, self.nodes)
+        self.jacobian[self.p_id] = np.linalg.det(j)
+
+    def _ni(self, i, xi, eta, zeta):
+        '''
+        Returns the i-th shape function at the given coordinates.
+        '''
+        xi_nodes, xi_index = self._get_dimension_array(i, 0)
+        eta_nodes, eta_index = self._get_dimension_array(i, 1)
+        zeta_nodes, zeta_index = self._get_dimension_array(i, 2)
+        l_xi = lagrange_polynomial(xi_nodes, xi_index, xi)
+        l_eta = lagrange_polynomial(eta_nodes, eta_index, eta)
+        l_zeta = lagrange_polynomial(zeta_nodes, zeta_index, zeta)
+        return l_xi*l_eta*l_zeta
+
+    def _dni_dxi(self, i, xi_coords, derivative_dim):
+        '''
+        Returns the derivative with respect of xi of the i-th shape function at
+        the given coordinates.
+        '''
+        nodes = np.zeros((3, len(self.connectivity)))
+        index = np.zeros(3, dtype=int)
+        nodes[0], index[0] = self._get_dimension_array(i, 0)
+        nodes[1], index[1] = self._get_dimension_array(i, 1)
+        nodes[2], index[2] = self._get_dimension_array(i, 2)
+        l = 1
+        for dim in range(3):
+            if dim == derivative_dim:
+                li = lagrange_polynomial_derivative(nodes[dim], index[dim],
+                    xi_coords[dim])
+            else:
+                li = lagrange_polynomial(nodes[dim], index[dim], xi_coords[dim])
+            l *= li
+        return l
+
+
+class Hexa1(Hexa):
+    '''
+    Reperesents a hexahedral element of order 1.
+    '''
+    
+    connectivity = np.array([
+        [[0, 1],
+        [3, 2]],
+        
+        [[4, 5],
+        [7, 6]],
+    ])
+    xi_nodes = np.array([
+        [-1, -1, -1],
+        [1, -1, -1],
+        [1, 1, -1],
+        [-1, 1, -1],
+        [-1, -1, 1],
+        [1, -1, 1],
+        [1, 1, 1],
+        [-1, 1, 1],
+    ])
+    n_nodes = len(xi_nodes)
+
+
+class Hexa2(Hexa):
+    '''
+    Reperesents a hexahedral element of order 2.
+    '''
+    
+    connectivity = np.array([
+        [[0, 8, 1],
+        [11, 20, 9],
+        [3, 10, 2]],
+        
+        [[16, 22, 17],
+        [24, 26, 25],
+        [19, 23, 18]],
+        
+        [[4, 12, 5],
+        [15, 21, 13],
+        [7, 14, 6]],
+    ])
+    xi_nodes = np.array([
+        [-1, -1, -1],
+        [1, -1, -1],
+        [1, 1, -1],
+        [-1, 1, -1],
+        [-1, -1, 1],
+        [1, -1, 1],
+        [1, 1, 1],
+        [-1, 1, 1],
+        [0, -1, -1],
+        [1, 0, -1],
+        [0, 1, -1],
+        [-1, 0, -1],
+        [0, -1, 1],
+        [1, 0, 1],
+        [0, 1, 1],
+        [-1, 0, 1],
+        [-1, -1, 0],
+        [1, -1, 0],
+        [1, 1, 0],
+        [-1, 1, 0],
+        [0, 0, -1],
+        [0, 0, 1],
+        [0, -1, 0],
+        [0, 1, 0],
+        [-1, 0, 0],
+        [1, 0, 0],
+        [0, 0, 0],
+    ])
+    n_nodes = len(xi_nodes)
+
+    @staticmethod
+    def elevate(nodes):
+        '''
+        Elevates the given nodes to order 2.
+        '''
+        n2 = np.zeros((27, 3))
+        n2[:8] = nodes[:8]
+        n2[8] = 0.5*(n2[0]+n2[1])
+        n2[9] = 0.5*(n2[1]+n2[2])
+        n2[10] = 0.5*(n2[2]+n2[3])
+        n2[11] = 0.5*(n2[3]+n2[0])
+        n2[12] = 0.5*(n2[4]+n2[5])
+        n2[13] = 0.5*(n2[5]+n2[6])
+        n2[14] = 0.5*(n2[6]+n2[7])
+        n2[15] = 0.5*(n2[7]+n2[4])
+        n2[16] = 0.5*(n2[0]+n2[4])
+        n2[17] = 0.5*(n2[1]+n2[5])
+        n2[18] = 0.5*(n2[2]+n2[6])
+        n2[19] = 0.5*(n2[3]+n2[7])
+        n2[20] = 0.5*(n2[8]+n2[10])
+        n2[21] = 0.5*(n2[12]+n2[14])
+        n2[22] = 0.5*(n2[16]+n2[17])
+        n2[23] = 0.5*(n2[19]+n2[18])
+        n2[24] = 0.5*(n2[16]+n2[19])
+        n2[25] = 0.5*(n2[17]+n2[18])
+        n2[26] = 0.5*(n2[22]+n2[23])
+        return n2
+
+
 if __name__ == '__main__':
+
     q1_nodes = np.array([
         [0, 0, 0],
         [3, 1, 0],
         [4, 3, 0],
         [1, 2, 0],
     ])
-    quad = LinearQuad(q1_nodes, n_xi=3, n_eta=4, n_zeta=1)
-    quad.write('results/jacobian/linear-quad.vts')
-    q1 = Quad1(q1_nodes, n_xi=3, n_eta=4, n_zeta=1)
-    q1.write('results/jacobian/q1.vts')
+    # quad = LinearQuad(q1_nodes, n_xi=3, n_eta=4, n_zeta=1)
+    # quad.write('results/jacobian/linear-quad.vts')
+    # q1 = Quad1(q1_nodes, n_xi=3, n_eta=4, n_zeta=1)
+    # q1.write('results/jacobian/q1.vts')
+    
     q2_nodes = np.array([
         [0, 0, 0],
         [3, 1, 0],
@@ -276,6 +440,25 @@ if __name__ == '__main__':
     ])
     delta = np.sqrt(q2_nodes[3, 0]**2+q2_nodes[3, 1]**2)
     q2_nodes[-1, [0, 1]] += 0.3*delta
-    q2 = Quad2(q2_nodes, n_xi=21, n_eta=21, n_zeta=1)
-    q2.write('results/jacobian/q2.vts')
+    # q2 = Quad2(q2_nodes, n_xi=21, n_eta=21, n_zeta=1)
+    # q2.write('results/jacobian/q2.vts')
+    
+    h1_nodes = np.array([
+        [0, 0, 0],
+        [1, 0, 0],
+        [1, 2, 0],
+        [0, 2, 0],
+        [0, 0, 3],
+        [1, 0, 3],
+        [1, 2, 3],
+        [0, 2, 3],
+    ])
+    h1 = Hexa1(h1_nodes)
+    h1.write('results/jacobian/h1.vts')
+    
+    h2_nodes = Hexa2.elevate(h1_nodes)
+    delta = np.sqrt(sum(h2_nodes[7]**2))
+    h2_nodes[-1] += 0.1*delta
+    h2 = Hexa2(h2_nodes, n_xi=21, n_eta=21, n_zeta=21)
+    h2.write('results/jacobian/h2.vts')
 
