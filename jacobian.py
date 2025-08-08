@@ -62,6 +62,33 @@ class Element:
                     self._calculate_coordinates()
                     self._calculate_jacobian()
 
+    def _get_dimension_array(self, i, dim):
+        '''
+        Returns the coodinates of the nodes aligned with the given node in the
+        given dimension.
+        '''
+        index = np.where(self.connectivity == i)
+        index = [idx[0] for idx in index]
+        if len(index) == 2:
+            if dim == 0:
+                indices = self.connectivity[index[0], :]
+                index = index[1]
+            if dim == 1:
+                indices = self.connectivity[:, index[1]]
+                index = index[0]
+        elif len(index) == 3:
+            if dim == 0:
+                indices = self.connectivity[index[0], index[1], :]
+                index = index[2]
+            if dim == 1:
+                indices = self.connectivity[index[0], :, index[2]]
+                index = index[1]
+            if dim == 2:
+                indices = self.connectivity[:, index[1], index[2]]
+                index = index[0]
+        coords = self.xi_nodes[indices, dim]
+        return coords, index
+
     def write(self, vts_file_path):
         '''
         Writes the mesh in a vts file.
@@ -152,10 +179,10 @@ class Quad(Element):
         '''
         Returns the i-th shape function at the given coordinates.
         '''
-        xi_nodes, row_index = self._get_row(i)
-        eta_nodes, col_index = self._get_column(i)
-        l_row = lagrange_polynomial(xi_nodes, row_index, xi)
-        l_col = lagrange_polynomial(eta_nodes, col_index, eta)
+        xi_nodes, xi_index = self._get_dimension_array(i, 0)
+        eta_nodes, eta_index = self._get_dimension_array(i, 1)
+        l_row = lagrange_polynomial(xi_nodes, xi_index, xi)
+        l_col = lagrange_polynomial(eta_nodes, eta_index, eta)
         return l_row*l_col
 
     def _dni_dxi(self, i, xi, eta):
@@ -163,10 +190,10 @@ class Quad(Element):
         Returns the derivative with respect of xi of the i-th shape function at
         the given coordinates.
         '''
-        xi_nodes, row_index = self._get_row(i)
-        eta_nodes, col_index = self._get_column(i)
-        l_row = lagrange_polynomial_derivative(xi_nodes, row_index, xi)
-        l_col = lagrange_polynomial(eta_nodes, col_index, eta)
+        xi_nodes, xi_index = self._get_dimension_array(i, 0)
+        eta_nodes, eta_index = self._get_dimension_array(i, 1)
+        l_row = lagrange_polynomial_derivative(xi_nodes, xi_index, xi)
+        l_col = lagrange_polynomial(eta_nodes, eta_index, eta)
         return l_row*l_col
 
     def _dni_deta(self, i, xi, eta):
@@ -174,29 +201,11 @@ class Quad(Element):
         Returns the derivative with respect of eta of the i-th shape function at
         the given coordinates.
         '''
-        xi_nodes, row_index = self._get_row(i)
-        eta_nodes, col_index = self._get_column(i)
-        l_row = lagrange_polynomial(xi_nodes, row_index, xi)
-        l_col = lagrange_polynomial_derivative(eta_nodes, col_index, eta)
+        xi_nodes, xi_index = self._get_dimension_array(i, 0)
+        eta_nodes, eta_index = self._get_dimension_array(i, 1)
+        l_row = lagrange_polynomial(xi_nodes, xi_index, xi)
+        l_col = lagrange_polynomial_derivative(eta_nodes, eta_index, eta)
         return l_row*l_col
-
-    def _get_row(self, i):
-        '''
-        Returns the row where the given node is found.
-        '''
-        row = [r for r in self.connectivity if i in r][0]
-        row_index = [j for j in range(len(row)) if row[j] == i][0]
-        xi_nodes = self.xi_nodes[row, 0]
-        return xi_nodes, row_index
-
-    def _get_column(self, j):
-        '''
-        Retuns the column where the given node is found.
-        '''
-        col = [c for c in self.connectivity.T if j in c][0]
-        col_index = [i for i in range(len(col)) if col[i] == j][0]
-        eta_nodes = self.xi_nodes[col, 1]
-        return eta_nodes, col_index
 
 
 class Quad2(Quad):
